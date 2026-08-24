@@ -11,9 +11,7 @@ use serde_json::{json, Value};
 use tauri::Manager;
 
 fn config_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map_err(|e| e.to_string())
+    app.path().app_config_dir().map_err(|e| e.to_string())
 }
 
 fn config_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -24,16 +22,20 @@ fn write_config(file: &Path, config: &Value) -> Result<(), String> {
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+
     fs::write(file, text).map_err(|e| e.to_string())
 }
 
 fn read_existing(file: &Path) -> Result<Value, String> {
     if file.exists() {
         let text = fs::read_to_string(file).map_err(|e| e.to_string())?;
+
         if text.trim().is_empty() {
             return Ok(Value::Null);
         }
+
         serde_json::from_str(&text).map_err(|e| e.to_string())
     } else {
         Ok(Value::Null)
@@ -42,12 +44,14 @@ fn read_existing(file: &Path) -> Result<Value, String> {
 
 fn ensure_device_id(mut config: Value) -> (Value, bool) {
     let mut changed = false;
+
     if let Some(obj) = config.as_object_mut() {
         let has_valid = obj
             .get("deviceId")
             .and_then(|v| v.as_str())
             .map(|s| uuid::Uuid::parse_str(s).is_ok())
             .unwrap_or(false);
+
         if !has_valid {
             obj.insert(
                 "deviceId".into(),
@@ -56,6 +60,7 @@ fn ensure_device_id(mut config: Value) -> (Value, bool) {
             changed = true;
         }
     }
+
     (config, changed)
 }
 
@@ -64,6 +69,7 @@ fn merge_json(mut base: Value, incoming: Value) -> Value {
         for (k, v) in inc_obj {
             base_obj.insert(k.clone(), v.clone());
         }
+
         base
     } else {
         incoming
@@ -82,16 +88,22 @@ fn load_config(app: tauri::AppHandle) -> Result<Value, String> {
             "deviceName": "TicketMachine",
             "server": "",
         });
+
         write_config(&file, &config)?;
     } else {
         let (new_config, changed) = ensure_device_id(config);
+
         config = new_config;
+
         if changed {
             write_config(&file, &config)?;
         }
     }
 
-    Ok(json!({ "success": true, "config": config }))
+    Ok(json!({
+        "success": true,
+        "config": config
+    }))
 }
 
 #[tauri::command]
@@ -100,16 +112,21 @@ fn save_config(app: tauri::AppHandle, config: Value) -> Result<Value, String> {
 
     let existing = read_existing(&file)?;
     let (existing, _) = ensure_device_id(existing);
+
     let device_id = existing.get("deviceId").cloned().unwrap_or(Value::Null);
 
     let mut saved = merge_json(existing, config);
+
     if let Some(obj) = saved.as_object_mut() {
         obj.insert("deviceId".into(), device_id);
     }
 
     write_config(&file, &saved)?;
 
-    Ok(json!({ "success": true, "config": saved }))
+    Ok(json!({
+        "success": true,
+        "config": saved
+    }))
 }
 
 #[tauri::command]
@@ -142,8 +159,15 @@ fn read_image_data_url(path: String) -> Result<Value, String> {
 
 #[tauri::command]
 fn get_app_version(app: tauri::AppHandle) -> Result<Value, String> {
-    Ok(json!({ "success": true, "version": app.package_info().version.to_string() }))
+    Ok(json!({
+        "success": true,
+        "version": app.package_info().version.to_string()
+    }))
 }
+
+/* ============================================================
+WINDOWS PRINTERS
+============================================================ */
 
 #[cfg(windows)]
 mod printers {
@@ -188,22 +212,29 @@ mod printers {
         if ptr.is_null() {
             return None;
         }
-        let mut len = 0;
+
+        let mut len = 0usize;
+
         unsafe {
             while *ptr.add(len) != 0 {
                 len += 1;
             }
         }
+
         let slice = unsafe { slice::from_raw_parts(ptr, len) };
+
         let os = OsString::from_wide(slice);
+
         Some(os.to_string_lossy().into_owned())
     }
 
     fn default_printer() -> String {
         let mut buf = [0u16; 512];
         let mut size = buf.len() as u32;
+
         let ok = unsafe { GetDefaultPrinterW(Some(PWSTR(buf.as_mut_ptr())), &mut size) };
-        if ok.is_ok() {
+
+        if ok.as_bool() {
             wide_to_string(buf.as_ptr()).unwrap_or_default()
         } else {
             String::new()
@@ -214,69 +245,95 @@ mod printers {
         let mut needed: u32 = 0;
         let mut returned: u32 = 0;
 
+        /*
+         * First call:
+         * Ask Windows how much memory is required.
+         */
         unsafe {
-            EnumPrintersW(
-                flags,
-                PWSTR::null(),
-                level,
-                None,
-                &mut needed,
-                &mut returned,
-            );
+            let _ = EnumPrintersW(flags, None, level, None, &mut needed, &mut returned);
         }
 
         if needed == 0 {
             return Vec::new();
         }
 
+        /*
+         * Allocate the required buffer.
+         */
         let mut buffer = vec![0u8; needed as usize];
+
         let mut returned: u32 = 0;
         let mut size = needed;
 
-        unsafe {
+        /*
+         * Second call:
+         * Actually retrieve the printers.
+         */
+        let ok = unsafe {
             EnumPrintersW(
                 flags,
-                PWSTR::null(),
+                None,
                 level,
                 Some(buffer.as_mut_slice()),
                 &mut size,
                 &mut returned,
-            );
+            )
+        };
+
+        if !ok.as_bool() {
+            return Vec::new();
         }
 
-        let count = returned as usize;
-        let record_size = std::mem::size_of::<PrinterInfo2W>();
-        buffer.truncate(count * record_size);
         buffer
     }
 
     pub fn list() -> Vec<serde_json::Value> {
         let mut printers: Vec<serde_json::Value> = Vec::new();
+
         let default_name = default_printer();
 
         let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+
         let buffer = enum_printers(flags, 2);
 
+        if buffer.is_empty() {
+            return printers;
+        }
+
         let record_size = std::mem::size_of::<PrinterInfo2W>();
+
+        if record_size == 0 {
+            return printers;
+        }
+
         let count = buffer.len() / record_size;
+
         let ptr = buffer.as_ptr() as *const PrinterInfo2W;
 
         for i in 0..count {
             let entry = unsafe { &*ptr.add(i) };
+
             let name = match wide_to_string(entry.p_printer_name) {
                 Some(n) if !n.is_empty() => n,
                 _ => continue,
             };
+
             printers.push(serde_json::json!({
                 "name": name,
                 "displayName": name,
-                "isDefault": !default_name.is_empty() && name == default_name,
+                "isDefault":
+                    !default_name.is_empty()
+                    && name == default_name,
             }));
         }
 
         printers
     }
 }
+
+/* ============================================================
+NON-WINDOWS
+============================================================ */
 
 #[cfg(not(windows))]
 mod printers {
@@ -285,9 +342,16 @@ mod printers {
     }
 }
 
+/* ============================================================
+TAURI COMMANDS
+============================================================ */
+
 #[tauri::command]
 fn list_printers() -> Result<Value, String> {
-    Ok(json!({ "success": true, "printers": printers::list() }))
+    Ok(json!({
+        "success": true,
+        "printers": printers::list()
+    }))
 }
 
 #[tauri::command]
@@ -322,8 +386,13 @@ fn set_proxy_target(
     } else {
         *state.target.lock().unwrap() = Some(trimmed);
     }
+
     Ok(())
 }
+
+/* ============================================================
+MAIN
+============================================================ */
 
 fn main() {
     tauri::Builder::default()
@@ -331,8 +400,11 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let proxy_state = Arc::new(proxy::ProxyState::default());
+
             tauri::async_runtime::block_on(proxy::start(proxy_state.clone()))?;
+
             app.manage(proxy_state);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
