@@ -151,6 +151,11 @@ mod printers {
     use std::os::windows::ffi::OsStringExt;
     use std::slice;
 
+    use windows::core::PWSTR;
+    use windows::Win32::Graphics::Printing::{
+        EnumPrintersW, GetDefaultPrinterW, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL,
+    };
+
     #[repr(C)]
     struct PrinterInfo2W {
         p_server_name: *mut u16,
@@ -195,11 +200,9 @@ mod printers {
     }
 
     fn default_printer() -> String {
-        use windows::Win32::Graphics::Printing::GetDefaultPrinterW;
-
         let mut buf = [0u16; 512];
         let mut size = buf.len() as u32;
-        let ok = unsafe { GetDefaultPrinterW(Some(buf.as_mut_ptr()), &mut size) };
+        let ok = unsafe { GetDefaultPrinterW(Some(PWSTR(buf.as_mut_ptr())), &mut size) };
         if ok.is_ok() {
             wide_to_string(buf.as_ptr()).unwrap_or_default()
         } else {
@@ -207,51 +210,55 @@ mod printers {
         }
     }
 
-    pub fn list() -> Vec<serde_json::Value> {
-        use windows::Win32::Graphics::Printing::{
-            EnumPrintersW, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL,
-        };
-        use windows::core::PCWSTR;
-
-        let mut printers: Vec<serde_json::Value> = Vec::new();
-        let default_name = default_printer();
-
-        let flags = (PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS).0;
+    fn enum_printers(flags: u32, level: u32) -> Vec<u8> {
         let mut needed: u32 = 0;
         let mut returned: u32 = 0;
 
         unsafe {
             EnumPrintersW(
                 flags,
-                PCWSTR::null(),
-                2,
+                PWSTR::null(),
+                level,
                 None,
-                0,
                 &mut needed,
                 &mut returned,
             );
         }
 
         if needed == 0 {
-            return printers;
+            return Vec::new();
         }
 
         let mut buffer = vec![0u8; needed as usize];
         let mut returned: u32 = 0;
+        let mut size = needed;
 
         unsafe {
             EnumPrintersW(
                 flags,
-                PCWSTR::null(),
-                2,
-                Some(buffer.as_mut_ptr() as *mut _),
-                needed,
-                &mut needed,
+                PWSTR::null(),
+                level,
+                Some(buffer.as_mut_slice()),
+                &mut size,
                 &mut returned,
             );
         }
 
         let count = returned as usize;
+        let record_size = std::mem::size_of::<PrinterInfo2W>();
+        buffer.truncate(count * record_size);
+        buffer
+    }
+
+    pub fn list() -> Vec<serde_json::Value> {
+        let mut printers: Vec<serde_json::Value> = Vec::new();
+        let default_name = default_printer();
+
+        let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+        let buffer = enum_printers(flags, 2);
+
+        let record_size = std::mem::size_of::<PrinterInfo2W>();
+        let count = buffer.len() / record_size;
         let ptr = buffer.as_ptr() as *const PrinterInfo2W;
 
         for i in 0..count {
