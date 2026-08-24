@@ -14,13 +14,14 @@ jobs:
   publish:
     strategy:
       fail-fast: false
+
       matrix:
         include:
           - os: windows-latest
-            args: ''
+            args: '--bundles nsis'
 
           - os: ubuntu-22.04
-            args: ''
+            args: '--bundles appimage'
 
     runs-on: ${{ matrix.os }}
 
@@ -53,7 +54,6 @@ jobs:
           ref: ${{ env.TAG }}
           fetch-depth: 0
 
-      # Linux dependencies required by Tauri
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
         run: |
@@ -84,11 +84,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
         with:
           tagName: ${{ env.TAG }}
           releaseName: ${{ env.TAG }}
           releaseDraft: false
           prerelease: false
+
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+
           args: ${{ matrix.args }}
