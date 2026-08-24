@@ -280,7 +280,7 @@ mod printers {
             )
         };
 
-        if !ok.as_bool() {
+        if ok.is_err() {
             return Vec::new();
         }
 
