@@ -670,6 +670,25 @@ function App() {
       },
     });
 
+    datos.push({
+      type: "text",
+      value: "--------------------------------",
+      style: {
+        textAlign: "center",
+        fontSize: "10px",
+      },
+    });
+
+    datos.push({
+      type: "text",
+      value: "Thank you for your visit!",
+      style: {
+        fontWeight: "bold",
+        textAlign: "center",
+        fontSize: "12px",
+      },
+    });
+
     for (let i = 0; i < 3; i++) {
       datos.push({
         type: "text",

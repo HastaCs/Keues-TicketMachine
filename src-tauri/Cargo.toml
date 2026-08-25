@@ -16,6 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+encoding_rs = "0.8"
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
 reqwest = { version = "0.12", features = ["stream"] }
@@ -26,6 +27,7 @@ futures-util = "0.3"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Printing",
+  "Win32_Graphics_Gdi",
   "Win32_System_Threading",
   "Win32_System_Diagnostics_Debug",
 ] }

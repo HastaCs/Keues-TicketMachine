@@ -1908,6 +1908,7 @@ version = "1.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "encoding_rs",
  "futures-util",
  "reqwest 0.12.28",
  "serde",

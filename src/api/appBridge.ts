@@ -83,54 +83,33 @@ export async function imprimirTicket(
     if (!printerName) {
       return { success: true };
     }
-    printTicketDocument(datos);
-    return { success: true };
+
+    const lines = (
+      datos as Array<{ value?: string; style?: Record<string, unknown> }>
+    )
+      .map((item) => {
+        const style = item?.style ?? {};
+        const fontSize =
+          Number(String(style.fontSize ?? "12").replace(/[^0-9.]/g, "")) || 12;
+
+        return {
+          text: String(item?.value ?? ""),
+          bold: style.fontWeight === "bold",
+          center: style.textAlign === "center",
+          big: fontSize >= 32,
+        };
+      })
+      .filter((line) => line.text.trim().length > 0);
+
+    return await invoke<PrintTicketResponse>("print_ticket", {
+      printer: printerName,
+      lines,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Error printing ticket";
     return { success: false, error: message };
   }
-}
-
-function printTicketDocument(data: unknown[]) {
-  const container = document.getElementById("print-area");
-
-  if (!container) {
-    throw new Error("Print area not found");
-  }
-
-  const lines = (data as Array<{ type?: string; value?: string; style?: Record<string, unknown> }>)
-    .map((item) => {
-      const value = item?.value ?? "";
-      const style = toCss(item?.style ?? {});
-      return `<div style="${style}">${escapeHtml(value)}</div>`;
-    })
-    .join("");
-
-  container.innerHTML = lines;
-
-  window.print();
-}
-
-function toCss(style: Record<string, unknown>): string {
-  const map: Record<string, string> = {
-    fontWeight: "font-weight",
-    textAlign: "text-align",
-    fontSize: "font-size",
-    lineHeight: "line-height",
-  };
-
-  return Object.entries(style)
-    .map(([key, value]) => `${map[key] ?? key}: ${value};`)
-    .join(" ");
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export function onEstadoActualizacion(callback: UpdateListener): () => void {
@@ -176,14 +155,17 @@ export async function descargarActualizacion(): Promise<AppResponse> {
 
   try {
     let total = 0;
+    let descargado = 0;
 
     await currentUpdate.download((event) => {
       if (event.event === "Started") {
         total = event.data.contentLength ?? 0;
+        descargado = 0;
       } else if (event.event === "Progress") {
-        const chunkLength = event.data.chunkLength;
+        descargado += event.data.chunkLength;
+
         if (total > 0) {
-          const percent = Math.round((chunkLength / total) * 100);
+          const percent = Math.min(100, Math.round((descargado / total) * 100));
           emit({ state: "downloading", percent, version });
         }
       }

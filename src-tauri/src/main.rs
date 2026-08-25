@@ -171,62 +171,14 @@ WINDOWS PRINTERS
 
 #[cfg(windows)]
 mod printers {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
     use std::slice;
 
-    use windows::core::PWSTR;
+    use windows::core::{HSTRING, PCWSTR, PWSTR};
     use windows::Win32::Graphics::Printing::{
-        EnumPrintersW, GetDefaultPrinterW, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL,
+        ClosePrinter, EndDocPrinter, EndPagePrinter, EnumPrintersW, GetDefaultPrinterW,
+        OpenPrinterW, StartDocPrinterW, StartPagePrinter, WritePrinter, DOC_INFO_1W,
+        PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_4W,
     };
-
-    #[repr(C)]
-    struct PrinterInfo2W {
-        p_server_name: *mut u16,
-        p_printer_name: *mut u16,
-        p_share_name: *mut u16,
-        p_port_name: *mut u16,
-        p_driver_name: *mut u16,
-        p_comment: *mut u16,
-        p_location: *mut u16,
-        p_dev_mode: *mut core::ffi::c_void,
-        p_sep_file: *mut u16,
-        p_print_processor: *mut u16,
-        p_datatype: *mut u16,
-        p_parameters: *mut u16,
-        p_security_descriptor: *mut core::ffi::c_void,
-        attributes: u32,
-        priority: u32,
-        default_priority: u32,
-        start_time: u32,
-        until_time: u32,
-        status: u32,
-        c_jobs: u32,
-        average_ppm: u32,
-        p_printer_status: *mut core::ffi::c_void,
-        p_last_error: *mut core::ffi::c_void,
-        p_extended_status: *mut core::ffi::c_void,
-    }
-
-    fn wide_to_string(ptr: *const u16) -> Option<String> {
-        if ptr.is_null() {
-            return None;
-        }
-
-        let mut len = 0usize;
-
-        unsafe {
-            while *ptr.add(len) != 0 {
-                len += 1;
-            }
-        }
-
-        let slice = unsafe { slice::from_raw_parts(ptr, len) };
-
-        let os = OsString::from_wide(slice);
-
-        Some(os.to_string_lossy().into_owned())
-    }
 
     fn default_printer() -> String {
         let mut buf = [0u16; 512];
@@ -234,14 +186,20 @@ mod printers {
 
         let ok = unsafe { GetDefaultPrinterW(Some(PWSTR(buf.as_mut_ptr())), &mut size) };
 
-        if ok.as_bool() {
-            wide_to_string(buf.as_ptr()).unwrap_or_default()
-        } else {
-            String::new()
+        if !ok.as_bool() {
+            return String::new();
         }
+
+        unsafe { PWSTR(buf.as_mut_ptr()).display().to_string() }
     }
 
-    fn enum_printers(flags: u32, level: u32) -> Vec<u8> {
+    pub fn list() -> Vec<serde_json::Value> {
+        let mut printers: Vec<serde_json::Value> = Vec::new();
+
+        let default_name = default_printer();
+
+        let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+
         let mut needed: u32 = 0;
         let mut returned: u32 = 0;
 
@@ -250,17 +208,17 @@ mod printers {
          * Ask Windows how much memory is required.
          */
         unsafe {
-            let _ = EnumPrintersW(flags, None, level, None, &mut needed, &mut returned);
+            let _ = EnumPrintersW(flags, None, 4, None, &mut needed, &mut returned);
         }
 
         if needed == 0 {
-            return Vec::new();
+            return printers;
         }
 
         /*
          * Allocate the required buffer.
          */
-        let mut buffer = vec![0u8; needed as usize];
+        let mut buffer = vec![0u64; needed.div_ceil(8) as usize];
 
         let mut returned: u32 = 0;
         let mut size = needed;
@@ -273,61 +231,105 @@ mod printers {
             EnumPrintersW(
                 flags,
                 None,
-                level,
-                Some(buffer.as_mut_slice()),
+                4,
+                Some(slice::from_raw_parts_mut(
+                    buffer.as_mut_ptr().cast::<u8>(),
+                    buffer.len() * 8,
+                )),
                 &mut size,
                 &mut returned,
             )
         };
 
-        if ok.is_err() {
-            return Vec::new();
-        }
-
-        buffer
-    }
-
-    pub fn list() -> Vec<serde_json::Value> {
-        let mut printers: Vec<serde_json::Value> = Vec::new();
-
-        let default_name = default_printer();
-
-        let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
-
-        let buffer = enum_printers(flags, 2);
-
-        if buffer.is_empty() {
+        if ok.is_err() || returned == 0 {
             return printers;
         }
 
-        let record_size = std::mem::size_of::<PrinterInfo2W>();
+        let entries = unsafe {
+            slice::from_raw_parts(buffer.as_ptr() as *const PRINTER_INFO_4W, returned as usize)
+        };
 
-        if record_size == 0 {
-            return printers;
-        }
+        for entry in entries {
+            let name = unsafe { entry.pPrinterName.display() }.to_string();
 
-        let count = buffer.len() / record_size;
-
-        let ptr = buffer.as_ptr() as *const PrinterInfo2W;
-
-        for i in 0..count {
-            let entry = unsafe { &*ptr.add(i) };
-
-            let name = match wide_to_string(entry.p_printer_name) {
-                Some(n) if !n.is_empty() => n,
-                _ => continue,
-            };
+            if name.is_empty() {
+                continue;
+            }
 
             printers.push(serde_json::json!({
                 "name": name,
                 "displayName": name,
-                "isDefault":
-                    !default_name.is_empty()
-                    && name == default_name,
+                "isDefault": !default_name.is_empty() && name == default_name,
             }));
         }
 
         printers
+    }
+
+    pub fn raw_print(printer_name: &str, payload: &[u8]) -> Result<(), String> {
+        let wide_name = HSTRING::from(printer_name);
+
+        let mut handle = PRINTER_HANDLE::default();
+
+        unsafe {
+            OpenPrinterW(PCWSTR(wide_name.as_ptr()), &mut handle, None)
+                .map_err(|e| format!("could not open printer '{printer_name}': {e}"))?;
+        }
+
+        let outcome = unsafe {
+            let doc_name = HSTRING::from("Keues Ticket");
+            let datatype = HSTRING::from("RAW");
+
+            let doc = DOC_INFO_1W {
+                pDocName: PWSTR(doc_name.as_ptr().cast_mut()),
+                pDatatype: PWSTR(datatype.as_ptr().cast_mut()),
+                pOutputFile: PWSTR::null(),
+            };
+
+            let job_id = StartDocPrinterW(handle, 1, &doc);
+
+            if job_id == 0 {
+                Err("could not start print job".to_string())
+            } else if StartPagePrinter(handle).as_bool()
+                && write_all(handle, payload)
+                && EndPagePrinter(handle).as_bool()
+                && EndDocPrinter(handle).as_bool()
+            {
+                Ok(())
+            } else {
+                Err("error sending data to printer".to_string())
+            }
+        };
+
+        unsafe {
+            let _ = ClosePrinter(handle);
+        }
+
+        outcome
+    }
+
+    unsafe fn write_all(handle: PRINTER_HANDLE, payload: &[u8]) -> bool {
+        let mut offset = 0usize;
+
+        while offset < payload.len() {
+            let chunk = &payload[offset..];
+            let mut written = 0u32;
+
+            let ok = WritePrinter(
+                handle,
+                chunk.as_ptr().cast(),
+                chunk.len().min(u32::MAX as usize) as u32,
+                &mut written,
+            );
+
+            if !ok.as_bool() || written == 0 {
+                return false;
+            }
+
+            offset += written as usize;
+        }
+
+        true
     }
 }
 
@@ -339,6 +341,10 @@ NON-WINDOWS
 mod printers {
     pub fn list() -> Vec<serde_json::Value> {
         Vec::new()
+    }
+
+    pub fn raw_print(_printer_name: &str, _payload: &[u8]) -> Result<(), String> {
+        Err("printing is only supported on Windows".to_string())
     }
 }
 
@@ -352,6 +358,56 @@ fn list_printers() -> Result<Value, String> {
         "success": true,
         "printers": printers::list()
     }))
+}
+
+#[derive(serde::Deserialize)]
+struct TicketLine {
+    text: String,
+    #[serde(default)]
+    bold: bool,
+    #[serde(default)]
+    center: bool,
+    #[serde(default)]
+    big: bool,
+}
+
+#[tauri::command]
+fn print_ticket(printer: String, lines: Vec<TicketLine>) -> Result<Value, String> {
+    let mut payload: Vec<u8> = Vec::new();
+
+    payload.extend_from_slice(b"\x1b@");
+
+    for line in &lines {
+        payload.extend_from_slice(if line.center {
+            b"\x1b\x61\x01"
+        } else {
+            b"\x1b\x61\x00"
+        });
+
+        payload.extend_from_slice(if line.bold {
+            b"\x1b\x45\x01"
+        } else {
+            b"\x1b\x45\x00"
+        });
+
+        payload.extend_from_slice(if line.big {
+            &[0x1d, 0x21, 0x11]
+        } else {
+            &[0x1d, 0x21, 0x00]
+        });
+
+        let (encoded, _, _) = encoding_rs::WINDOWS_1252.encode(&line.text);
+
+        payload.extend_from_slice(&encoded);
+        payload.extend_from_slice(b"\r\n");
+    }
+
+    payload.extend_from_slice(b"\n\n\n");
+    payload.extend_from_slice(&[0x1d, 0x56, 0x42, 0x00]);
+
+    printers::raw_print(&printer, &payload)?;
+
+    Ok(json!({ "success": true }))
 }
 
 #[tauri::command]
@@ -413,6 +469,7 @@ fn main() {
             read_image_data_url,
             get_app_version,
             list_printers,
+            print_ticket,
             get_proxy_base,
             set_proxy_target
         ])
