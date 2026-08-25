@@ -672,7 +672,7 @@ function App() {
 
     datos.push({
       type: "text",
-      value: "--------------------------------",
+      value: "-".repeat(tamanoPapel === "58mm" ? 32 : 48),
       style: {
         textAlign: "center",
         fontSize: "10px",
