@@ -50,3 +50,7 @@ export const DEFAULT_THEME: MachineTheme = {
   expandButtons: false,
   columns: 1,
 };
+
+export function resolveTheme(theme?: Partial<MachineTheme>): MachineTheme {
+  return { ...DEFAULT_THEME, ...(theme ?? {}) };
+}
