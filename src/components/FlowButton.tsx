@@ -27,7 +27,7 @@ export default function FlowButton({ node, theme, onClick }: Props) {
           {node.name}
         </Text>
 
-        {node.description && (
+        {theme.showButtonDescription && node.description && (
           <Text style={{ fontSize: Math.round(theme.buttonFontSize * 0.55) }}>{node.description}</Text>
         )}
       </Stack>

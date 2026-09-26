@@ -205,6 +205,13 @@ export default function AppearanceSettings({ theme, onThemeChange, onPickImage }
             </SimpleGrid>
 
             <Switch
+              label="Show button descriptions"
+              description="Display each option's description under its name"
+              checked={theme.showButtonDescription}
+              onChange={(e) => onThemeChange({ showButtonDescription: e.currentTarget.checked })}
+            />
+
+            <Switch
               label="Expand buttons to full screen height"
               description="Buttons stretch to fill the monitor vertically"
               checked={theme.expandButtons}

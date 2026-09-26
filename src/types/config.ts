@@ -28,6 +28,7 @@ export interface MachineTheme {
   buttonBorderWidth: number;
   buttonFontSize: number;
   buttonHeight: number;
+  showButtonDescription: boolean;
   expandButtons: boolean;
   columns: number;
   backgroundImage?: string;
@@ -47,6 +48,7 @@ export const DEFAULT_THEME: MachineTheme = {
   buttonBorderWidth: 3,
   buttonFontSize: 36,
   buttonHeight: 140,
+  showButtonDescription: false,
   expandButtons: false,
   columns: 1,
 };
