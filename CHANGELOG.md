@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/HastaCs/Keues-TicketMachine/compare/v1.0.1...v1.1.0) (2026-09-26)
+
+
+### 🚀 Features
+
+* add option to show button descriptions in theme settings ([58882b5](https://github.com/HastaCs/Keues-TicketMachine/commit/58882b5a1cb9a0ae84fb04bc9bb94116eb76ddfc))
+
 ## [1.0.1](https://github.com/HastaCs/Keues-TicketMachine/compare/v1.0.0...v1.0.1) (2026-08-25)
 
 
