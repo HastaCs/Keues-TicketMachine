@@ -26,6 +26,7 @@ import {
 import Brand from "./components/Brand";
 import TicketMachine from "./components/TicketMachine";
 import TicketCreated from "./components/TicketCreated";
+import MaintenanceScreen from "./components/MaintenanceScreen";
 import ConnectionSettings from "./components/settings/ConnectionSettings";
 import AppearanceSettings from "./components/settings/AppearanceSettings";
 import UpdatesSettings from "./components/settings/UpdatesSettings";
@@ -44,6 +45,7 @@ import {
   createTicket,
   fetchFlowNodes,
   fetchFlows,
+  fetchIsActive,
   fetchLocations,
 } from "./api/serverApi";
 import { buildTicketLines } from "./printing/ticketLayout";
@@ -77,6 +79,7 @@ function App() {
   const [flowNodes, setFlowNodes] = useState<FlowNode[]>([]);
   const [ticketCode, setTicketCode] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [deviceActive, setDeviceActive] = useState(true);
 
   const [settingsMode, setSettingsMode] = useState(false);
   const [section, setSection] = useState<SettingsSection>("connection");
@@ -129,6 +132,18 @@ function App() {
    * =====================================================
    */
 
+  const refreshDeviceActive = useCallback(async (cfg: AppConfiguration) => {
+    if (!cfg.server || !cfg.deviceId) {
+      return;
+    }
+
+    try {
+      setDeviceActive(await fetchIsActive(cfg.server, cfg.deviceId));
+    } catch (error) {
+      console.error("Error loading device status:", error);
+    }
+  }, []);
+
   const { connect } = useDeviceConnection({
     onReloadFlow: useCallback(async () => {
       const result = await loadConfig();
@@ -137,6 +152,8 @@ function App() {
         await loadFlowNodes(result.config);
       }
     }, [loadFlowNodes]),
+    onActiveChange: setDeviceActive,
+    onConnected: refreshDeviceActive,
   });
 
   /*
@@ -454,6 +471,38 @@ function App() {
    */
 
   if (config && !settingsMode) {
+    if (!deviceActive) {
+      return (
+        <>
+          {!fullscreen && (
+            <Group pos="fixed" top={20} left={20} style={{ zIndex: 1000 }}>
+              <Button
+                leftSection={<IconMaximize />}
+                variant="filled"
+                color="dark"
+                onClick={() => {
+                  void document.documentElement.requestFullscreen();
+                }}
+              >
+                Fullscreen
+              </Button>
+
+              <Button
+                leftSection={<IconSettings />}
+                variant="filled"
+                color="dark"
+                onClick={enterSettings}
+              >
+                Settings
+              </Button>
+            </Group>
+          )}
+
+          <MaintenanceScreen />
+        </>
+      );
+    }
+
     if (ticketCode) {
       return (
         <TicketCreated

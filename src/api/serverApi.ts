@@ -1,7 +1,7 @@
 import { configureTarget, serverBase } from "./net";
 
 import type { FlowNode } from "../types/flow";
-import type { FlowInfo, LocationInfo } from "../types/server";
+import type { DeviceActiveInfo, FlowInfo, LocationInfo } from "../types/server";
 
 export async function fetchLocations(server: string): Promise<LocationInfo[]> {
   await configureTarget(server);
@@ -46,6 +46,24 @@ export async function fetchFlowNodes(server: string, flowId: string): Promise<Fl
   const json = (await response.json()) as { flowJson: string };
 
   return JSON.parse(json.flowJson);
+}
+
+export async function fetchIsActive(server: string, deviceId: string): Promise<boolean> {
+  await configureTarget(server);
+
+  const response = await fetch(`${serverBase(server)}/api/devices/${deviceId}/isActive`);
+
+  if (response.status === 404) {
+    return true;
+  }
+
+  if (!response.ok) {
+    throw new Error("Could not load device status");
+  }
+
+  const json = (await response.json()) as DeviceActiveInfo;
+
+  return json.active ?? true;
 }
 
 export async function createTicket(

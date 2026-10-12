@@ -7,3 +7,7 @@ export interface FlowInfo {
   id: string;
   name: string;
 }
+
+export interface DeviceActiveInfo {
+  active: boolean;
+}
