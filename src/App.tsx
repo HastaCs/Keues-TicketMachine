@@ -27,6 +27,7 @@ import Brand from "./components/Brand";
 import TicketMachine from "./components/TicketMachine";
 import TicketCreated from "./components/TicketCreated";
 import MaintenanceScreen from "./components/MaintenanceScreen";
+import QrVirtualScreen from "./components/QrVirtualScreen";
 import ConnectionSettings from "./components/settings/ConnectionSettings";
 import AppearanceSettings from "./components/settings/AppearanceSettings";
 import UpdatesSettings from "./components/settings/UpdatesSettings";
@@ -43,7 +44,7 @@ import {
 } from "./api/appBridge";
 import {
   createTicket,
-  fetchFlowNodes,
+  fetchFlow,
   fetchFlows,
   fetchIsActive,
   fetchLocations,
@@ -54,9 +55,11 @@ import type { AppConfiguration, PaperSize } from "./types/config";
 import { DEFAULT_THEME, resolveTheme, type MachineTheme } from "./types/config";
 import type { FlowNode } from "./types/flow";
 import type { PrinterInfo } from "./types/app";
-import type { FlowInfo, LocationInfo } from "./types/server";
+import type { FlowDetail, FlowInfo, LocationInfo, QrTokenPayload } from "./types/server";
 
 type SettingsSection = "connection" | "appearance" | "updates";
+
+const QR_VIRTUAL_FLOW_TYPE = 3;
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -77,6 +80,8 @@ function App() {
   const [searching, setSearching] = useState(false);
 
   const [flowNodes, setFlowNodes] = useState<FlowNode[]>([]);
+  const [flowDetail, setFlowDetail] = useState<FlowDetail | null>(null);
+  const [qrToken, setQrToken] = useState<QrTokenPayload | null>(null);
   const [ticketCode, setTicketCode] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [deviceActive, setDeviceActive] = useState(true);
@@ -98,13 +103,23 @@ function App() {
    * =====================================================
    */
 
-  const loadFlowNodes = useCallback(async (cfg: AppConfiguration) => {
+  const loadFlow = useCallback(async (cfg: AppConfiguration) => {
     if (!cfg.server || !cfg.flowId) {
       return;
     }
 
     try {
-      setFlowNodes(await fetchFlowNodes(cfg.server, cfg.flowId));
+      const flow = await fetchFlow(cfg.server, cfg.flowId);
+
+      setFlowDetail(flow);
+
+      if (flow.flowType === QR_VIRTUAL_FLOW_TYPE) {
+        setFlowNodes([]);
+        setQrToken((previous) => (previous?.flowId === flow.id ? previous : null));
+      } else {
+        setQrToken(null);
+        setFlowNodes(JSON.parse(flow.flowJson) as FlowNode[]);
+      }
     } catch (error) {
       console.error("Error loading flow:", error);
     }
@@ -149,10 +164,11 @@ function App() {
       const result = await loadConfig();
 
       if (result.success && result.config) {
-        await loadFlowNodes(result.config);
+        await loadFlow(result.config);
       }
-    }, [loadFlowNodes]),
+    }, [loadFlow]),
     onActiveChange: setDeviceActive,
+    onQrToken: setQrToken,
     onConnected: refreshDeviceActive,
   });
 
@@ -191,7 +207,7 @@ function App() {
         void loadPrinters();
 
         if (cfg.server && cfg.flowId) {
-          await loadFlowNodes(cfg);
+          await loadFlow(cfg);
         }
 
         if (cfg.server) {
@@ -215,7 +231,7 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, [connect, loadFlowNodes, loadPrinters]);
+  }, [connect, loadFlow, loadPrinters]);
 
   /*
    * =====================================================
@@ -230,13 +246,13 @@ function App() {
 
     const timer = setTimeout(() => {
       setTicketCode(null);
-      if (config) void loadFlowNodes(config);
+      if (config) void loadFlow(config);
     }, 2000);
 
     return () => {
       clearTimeout(timer);
     };
-  }, [ticketCode, config, loadFlowNodes]);
+  }, [ticketCode, config, loadFlow]);
 
   useEffect(() => {
     if (!message) {
@@ -336,7 +352,7 @@ function App() {
   function exitSettings() {
     setSettingsMode(false);
 
-    if (config) void loadFlowNodes(config);
+    if (config) void loadFlow(config);
   }
 
   async function save() {
@@ -377,7 +393,7 @@ function App() {
 
     setConfig(next);
 
-    await loadFlowNodes(next);
+    await loadFlow(next);
 
     /*
      * Connecting when a connection already exists is a no-op,
@@ -428,18 +444,24 @@ function App() {
     }));
   }
 
-  async function pickThemeImage(kind: "header" | "background") {
+  async function pickThemeImage(kind: "header" | "background" | "qr") {
     try {
       const result = await selectImage(
-        kind === "header" ? "Select header image" : "Select background image"
+        kind === "header"
+          ? "Select header image"
+          : kind === "qr"
+            ? "Select QR background image"
+            : "Select background image"
       );
 
       if (result.success && result.dataUrl) {
-        updateTheme(
-          kind === "header"
-            ? { headerImage: result.dataUrl }
-            : { backgroundImage: result.dataUrl }
-        );
+        if (kind === "header") {
+          updateTheme({ headerImage: result.dataUrl });
+        } else if (kind === "qr") {
+          updateTheme({ qrBackgroundImage: result.dataUrl });
+        } else {
+          updateTheme({ backgroundImage: result.dataUrl });
+        }
       }
     } catch (error) {
       setMessage(toErrorMessage(error));
@@ -503,6 +525,44 @@ function App() {
       );
     }
 
+    if (flowDetail?.flowType === QR_VIRTUAL_FLOW_TYPE) {
+      return (
+        <>
+          {!fullscreen && (
+            <Group pos="fixed" top={20} left={20} style={{ zIndex: 1000 }}>
+              <Button
+                leftSection={<IconMaximize />}
+                variant="filled"
+                color="dark"
+                onClick={() => {
+                  void document.documentElement.requestFullscreen();
+                }}
+              >
+                Fullscreen
+              </Button>
+
+              <Button
+                leftSection={<IconSettings />}
+                variant="filled"
+                color="dark"
+                onClick={enterSettings}
+              >
+                Settings
+              </Button>
+            </Group>
+          )}
+
+          <QrVirtualScreen
+            theme={config.theme}
+            server={config.server}
+            flowName={flowDetail.name}
+            flowDescription={flowDetail.description}
+            qrToken={qrToken}
+          />
+        </>
+      );
+    }
+
     if (ticketCode) {
       return (
         <TicketCreated
@@ -538,7 +598,7 @@ function App() {
           theme={config.theme}
           onCreateTicket={handleCreateTicket}
           onBackToRoot={() => {
-            void loadFlowNodes(config);
+            void loadFlow(config);
           }}
         />
       </>

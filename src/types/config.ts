@@ -33,6 +33,15 @@ export interface MachineTheme {
   columns: number;
   backgroundImage?: string;
   headerImage?: string;
+  qrTopText: string;
+  qrTopTextColor: string;
+  qrTopTextSize: number;
+  qrBottomText: string;
+  qrBottomTextColor: string;
+  qrBottomTextSize: number;
+  qrBackgroundColor: string;
+  qrBackgroundImage?: string;
+  qrSize: number;
 }
 
 export const DEFAULT_THEME: MachineTheme = {
@@ -51,6 +60,14 @@ export const DEFAULT_THEME: MachineTheme = {
   showButtonDescription: false,
   expandButtons: false,
   columns: 1,
+  qrTopText: "",
+  qrTopTextColor: "#000000",
+  qrTopTextSize: 40,
+  qrBottomText: "",
+  qrBottomTextColor: "#000000",
+  qrBottomTextSize: 28,
+  qrBackgroundColor: "#ffffff",
+  qrSize: 320,
 };
 
 export function resolveTheme(theme?: Partial<MachineTheme>): MachineTheme {

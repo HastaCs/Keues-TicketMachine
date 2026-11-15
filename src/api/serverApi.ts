@@ -1,7 +1,12 @@
 import { configureTarget, serverBase } from "./net";
 
 import type { FlowNode } from "../types/flow";
-import type { DeviceActiveInfo, FlowInfo, LocationInfo } from "../types/server";
+import type {
+  DeviceActiveInfo,
+  FlowDetail,
+  FlowInfo,
+  LocationInfo,
+} from "../types/server";
 
 export async function fetchLocations(server: string): Promise<LocationInfo[]> {
   await configureTarget(server);
@@ -34,7 +39,7 @@ export async function fetchFlows(
   return json.data ?? [];
 }
 
-export async function fetchFlowNodes(server: string, flowId: string): Promise<FlowNode[]> {
+export async function fetchFlow(server: string, flowId: string): Promise<FlowDetail> {
   await configureTarget(server);
 
   const response = await fetch(`${serverBase(server)}/api/flows/${flowId}`);
@@ -43,9 +48,13 @@ export async function fetchFlowNodes(server: string, flowId: string): Promise<Fl
     throw new Error("Could not load the flow");
   }
 
-  const json = (await response.json()) as { flowJson: string };
+  return (await response.json()) as FlowDetail;
+}
 
-  return JSON.parse(json.flowJson);
+export async function fetchFlowNodes(server: string, flowId: string): Promise<FlowNode[]> {
+  const flow = await fetchFlow(server, flowId);
+
+  return JSON.parse(flow.flowJson);
 }
 
 export async function fetchIsActive(server: string, deviceId: string): Promise<boolean> {
