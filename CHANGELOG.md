@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/HastaCs/Keues-TicketMachine/compare/v1.1.0...v1.2.0) (2026-11-15)
+
+
+### 🚀 Features
+
+* add QR virtual queue screen ([fc4aa3e](https://github.com/HastaCs/Keues-TicketMachine/commit/fc4aa3e4b5e263d1ba57b57fe621ba2f8e1a53cd))
+
 ## [1.1.0](https://github.com/HastaCs/Keues-TicketMachine/compare/v1.0.1...v1.1.0) (2026-10-12)
 
 
